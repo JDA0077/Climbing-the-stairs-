@@ -1,0 +1,145 @@
+import mujoco
+import mujoco.viewer
+import numpy as np
+
+# =====================================================
+# LOAD MODEL
+# =====================================================
+MODEL_PATH = "task4.xml"
+model = mujoco.MjModel.from_xml_path(MODEL_PATH)
+data  = mujoco.MjData(model)
+
+# =====================================================
+# JOINT ADDRESSES
+# =====================================================
+J = {name: model.joint(name).qposadr for name in ["q1", "q2", "q3", "q4"]}
+rootx = model.joint("rootx").qposadr
+rootz = model.joint("rootz").qposadr
+theta = model.joint("theta").qposadr
+
+# Foot sites (for timing / debugging)
+left_site  = model.site("left_foot_site").id
+right_site = model.site("right_foot_site").id
+
+# Stair edges (assignment definition)
+FIRST_EDGE_X = 0.20
+LAST_EDGE_X  = 1.20
+
+# =====================================================
+# RESET USING XML KEYFRAME (CRITICAL)
+# =====================================================
+def reset():
+    # Load <key name="start"> from XML
+    mujoco.mj_resetDataKeyframe(model, data, 0)
+
+    # Forward kinematics
+    mujoco.mj_forward(model, data)
+
+    # Small settle (no sinking, no falling)
+    for _ in range(10):
+        mujoco.mj_step(model, data)
+
+# Call reset once
+reset()
+
+# =====================================================
+# STAIR-CLIMBING GAIT (EXPLICIT, STABLE)
+# =====================================================
+def gait(t):
+    step_time = 1.5
+    phase = (t / step_time) % 1.0
+    s = (phase % 0.5) / 0.5
+    left_stance = phase < 0.5
+
+    # ---- Tuned parameters ----
+    hip_push  = 0.55
+    hip_step  = 1.10
+    knee_lift = 2.10
+    knee_base = 1.05
+    knee_ext  = 0.20
+
+    # Swing knee: lift early and hold
+    def swing_knee(s):
+        if s < 0.35:
+            return knee_base + knee_lift * (s / 0.35)
+        return knee_base + knee_lift
+
+    # Stance knee: extend very late (prevents wedging)
+    def stance_knee(s):
+        if s < 0.92:
+            return knee_base
+        u = (s - 0.92) / 0.08
+        return knee_base - (knee_base - knee_ext) * u
+
+    if left_stance:
+        q1 = +hip_push * s
+        q2 = stance_knee(s)
+        q3 = -hip_step * s
+        q4 = swing_knee(s)
+    else:
+        q3 = +hip_push * s
+        q4 = stance_knee(s)
+        q1 = -hip_step * s
+        q2 = swing_knee(s)
+
+    # Forward COM bias (prevents backward drift)
+    com_bias = 0.15 * np.sin(np.pi * s)
+    q1 -= com_bias
+    q3 -= com_bias
+
+    return np.clip(
+        [q1, q3, q2, q4],
+        [-1.2, -1.2, 0.0, 0.0],
+        [ 0.6,  0.6, 2.4, 2.4]
+    )
+
+# =====================================================
+# RUN + SCORE
+# =====================================================
+started = False
+t_start = None
+
+with mujoco.viewer.launch_passive(model, data) as viewer:
+    print("5-stair climbing task running (keyframe start)")
+
+    while viewer.is_running():
+        t = data.time
+
+        data.ctrl[:] = gait(t)
+        mujoco.mj_step(model, data)
+
+        lx = data.site_xpos[left_site][0]
+        rx = data.site_xpos[right_site][0]
+
+        # Start timing when both feet pass first stair
+        if not started and lx > FIRST_EDGE_X and rx > FIRST_EDGE_X:
+            started = True
+            t_start = t
+            print("Timing started")
+
+        # End timing when both feet clear last stair
+        if started and lx > LAST_EDGE_X and rx > LAST_EDGE_X:
+            T = t - t_start
+            score = 20.0 / T
+            print(f"Finished in {T:.2f} s")
+            print(f"Score = {score:.2f}")
+            break
+
+        viewer.sync()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
