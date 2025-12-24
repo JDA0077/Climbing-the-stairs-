@@ -58,7 +58,7 @@
 <position joint="q2" kp="90" forcerange="-120 120"/>
 <position joint="q4" kp="90" forcerange="-120 120"/>
 </actuator>
-<!--  KEYFRAME sets the true initial qpos ( NOT start sunk)  -->
+<!--  KEYFRAME sets the true initial qpos   -->
 <!--  qpos order: rootx rootz rootyaw theta q1 q2 q3 q4  -->
 <keyframe>
 <key name="start" qpos="0 1.42 0 0 0 1.05 0 1.05" qvel="0 0 0 0 0 0 0 0"/>
